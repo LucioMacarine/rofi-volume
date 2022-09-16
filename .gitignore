@@ -1,0 +1,8 @@
+.vscode
+.vs
+.nuget
+/bin
+*.txt
+/obj
+rofi-volume
+rofi-volume.pdb
