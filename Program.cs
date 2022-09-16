@@ -12,7 +12,7 @@ namespace rofi_volume
             var parser = new rofi_parser();
             if (args.Length > 0)
             {
-                parser.repeatCommandGen(args[0]);
+                // parser.repeatCommandGen(args[0]);
                 runfromindex(parser.resolveIndex(args[0]));
             }
             Console.WriteLine(parser.prompt);
@@ -23,25 +23,25 @@ namespace rofi_volume
             switch (index)
             {
                 case 0:
-                    amixer.IncreaseVolumeForSink("Master", 10);
+                    amixer.IncreaseVolumeForSource("Master", 10);
                     break;
                 case 1:
-                    amixer.IncreaseVolumeForSink("Master", 5);
+                    amixer.IncreaseVolumeForSource("Master", 5);
                     break;
                 case 2:
-                    amixer.IncreaseVolumeForSink("Master", 1);
+                    amixer.IncreaseVolumeForSource("Master", 1);
                     break;
                 case 3:
-                    amixer.ToggleMuteForSink("Master");
+                    amixer.ToggleMuteForSource("Master");
                     break;
                 case 4:
-                    amixer.IncreaseVolumeForSink("Master", -1);
+                    amixer.IncreaseVolumeForSource("Master", -1);
                     break;
                 case 5:
-                    amixer.IncreaseVolumeForSink("Master", -5);
+                    amixer.IncreaseVolumeForSource("Master", -5);
                     break;
                 case 6:
-                    amixer.IncreaseVolumeForSink("Master", -10);
+                    amixer.IncreaseVolumeForSource("Master", -10);
                     break;
             }
         }
@@ -49,7 +49,23 @@ namespace rofi_volume
 
     class rofi_parser
     {
-        private string promptHeaders { get { return $"\0prompt\x1fVol: {new progbar(42, amixer.GetVolumeForSinkLeft("Master")).text} {amixer.GetVolumeForSinkLeft("Master").ToString()}%\n\0no-custom\x1f"; } }
+        private string promptHeaders
+        {
+            get
+            {
+                progbar bar = new progbar(42, 0);
+                string vol = $"{amixer.GetVolumeForSourceLeft("Master").ToString()}%";
+                if (amixer.IsSourceMuted("Master"))
+                {
+                    vol = vol + " (MUTED)";
+                }
+                else
+                {
+                    bar.setPercent(amixer.GetVolumeForSourceLeft("Master"));
+                }
+                return $"\0prompt\x1fVol: {bar.text} {vol}\n\0no-custom\x1f";
+            }
+        }
         private static string[] promptLines = new string[] { "🔊 +10%", "🔉 +5%", "🔈 +1%", "🔇 Toggle Mute", "🔈 -1%", "🔉 -5%", "🔊 -10%" };
         public string prompt
         {
@@ -68,25 +84,7 @@ namespace rofi_volume
         public int resolveIndex(string input)
         {
             List<string> promptLineList = promptLines.ToList();
-            if (promptLineList.Where(x => x.EndsWith(" [repeat]")).ToArray().Length > 0)
-            {
-                var removeRepeat = promptLineList.Where(x => x.EndsWith(" [repeat]")).First();
-                removeRepeat = removeRepeat.Remove(removeRepeat.IndexOf("[") - 1);
-                return promptLineList.Skip(1).ToList().FindIndex(x => x == removeRepeat);
-            }
             return promptLineList.FindIndex(x => x == input);
-        }
-
-        public void repeatCommandGen(string arg)
-        {
-            if (arg.EndsWith(" [repeat]"))
-            {
-                promptLines = promptLines.Prepend(arg.Remove(arg.LastIndexOf("[") - 1) + " [repeat]").ToArray<string>();
-            }
-            else
-            {
-                promptLines = promptLines.Prepend(arg + " [repeat]").ToArray<string>();
-            }
         }
     }
 
@@ -200,45 +198,58 @@ namespace rofi_volume
 
     internal static class amixer
     {
-        public static uint GetVolumeForSinkLeft(string sink)
+        public static uint GetVolumeForSourceLeft(string Source)
         {
-            string stdout = bashProcesses.amixer("get", $"\'{sink}\'");
+            string stdout = bashProcesses.amixer("get", $"\'{Source}\'");
             int leftstart = stdout.IndexOf("Left: ");
             string leftline = stdout.Substring(leftstart, stdout.Substring(leftstart).IndexOf("]") + 1);
             string volumeStr = leftline.Substring(leftline.IndexOf("[") + 1, leftline.Substring(leftline.IndexOf("[") + 1).IndexOf("]") - 1);
             return Convert.ToUInt32(volumeStr);
         }
 
-        public static uint GetVolumeForSinkRight(string sink)
+        public static uint GetVolumeForSourceRight(string Source)
         {
-            string stdout = bashProcesses.amixer("get", $"\'{sink}\'");
+            string stdout = bashProcesses.amixer("get", $"\'{Source}\'");
             int leftstart = stdout.IndexOf("Right: ");
-            string leftline = stdout.Substring(leftstart, stdout.Substring(leftstart).IndexOf("]") + 1);
+            string leftline = stdout.Substring(leftstart, stdout.Substring(leftstart).LastIndexOf("]") + 1);
             string volumeStr = leftline.Substring(leftline.IndexOf("[") + 1, leftline.Substring(leftline.IndexOf("[") + 1).IndexOf("]") - 1);
             return Convert.ToUInt32(volumeStr);
         }
 
-        public static string SetVolumeForSink(string sink, uint volume)
+        public static string SetVolumeForSource(string Source, uint volume)
         {
-            return bashProcesses.amixer("set", $"{sink}", $"{volume.ToString()}%");
+            return bashProcesses.amixer("set", $"{Source}", $"{volume.ToString()}%");
         }
 
-        public static string IncreaseVolumeForSink(string sink, int volume)
+        public static string IncreaseVolumeForSource(string Source, int volume)
         {
             if (volume >= 0)
             {
-                return bashProcesses.amixer("set", $"{sink}", $"{volume.ToString()}%+");
+                return bashProcesses.amixer("set", Source, $"{volume.ToString()}%+");
             }
             else
             {
                 var negativevol = volume * -1;
-                return bashProcesses.amixer("set", $"{sink}", $"{negativevol.ToString()}%-");
+                return bashProcesses.amixer("set", Source, $"{negativevol.ToString()}%-");
             }
         }
 
-        public static string ToggleMuteForSink(string sink)
+        public static string ToggleMuteForSource(string Source)
         {
-            return bashProcesses.amixer("set", "Master", "toggle");
+            return bashProcesses.amixer("set", Source, "toggle");
+        }
+
+        public static bool IsSourceMuted(string Source)
+        {
+            string stdout = bashProcesses.amixer("get", Source);
+            int leftstart = stdout.IndexOf("Left: ");
+            string leftline = stdout.Substring(leftstart, stdout.Substring(leftstart).LastIndexOf("]") + 1);
+            string mutestr = leftline.Substring(leftline.LastIndexOf("[") + 1, leftline.Substring(leftline.LastIndexOf("[") + 1).IndexOf("]"));
+            if (mutestr == "on")
+            {
+                return false;
+            }
+            else return true;
         }
     }
 }
